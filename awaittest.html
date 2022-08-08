@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <script>
+      //核心是then都会返回一个新的promise，每一个新的promise又有自己的resolveQuene，由于后面的.then的promise实例是前面promise.then后返回的promise实例，所以后面promise的resolve依赖与前面promise的控制，具体规则是如果前面resolve函数返回的不是promise，那么直接resolve后面的promise的resolveQuene，如果前面promise返回的是promise，那么要等前面promise返回的promise resolve之后才会去调后面promise的resolve.
+
+      //如果executor是同步，为了让后面的.then方法可以把resolve push到quene里面去所以需要用setTimeout去处理callback quene回调
+
+      //executor决定了什么时候推送什么数据给resolveQuene，resolveQuene决定了拿到数据后怎么使用
+
+      //Promise/A+规范的三种状态
+      const PENDING = "pending";
+      const FULFILLED = "fulfilled";
+      const REJECTED = "rejected";
+
+      class MyPromise {
+        // 构造方法接收一个回调
+        constructor(executor) {
+          this._status = PENDING; // Promise状态
+          this._resolveQueue = []; // 成功队列, resolve时触发
+          this._rejectQueue = []; // 失败队列, reject时触发
+
+          // 由于resolve/reject是在executor内部被调用, 因此需要使用箭头函数固定this指向, 否则找不到this._resolveQueue
+          let _resolve = (val) => {
+            if (this._status !== PENDING) return; // 对应规范中的"状态只能由pending到fulfilled或rejected"
+            this._status = FULFILLED; // 变更状态
+
+            // 这里之所以使用一个队列来储存回调,是为了实现规范要求的 "then 方法可以被同一个 promise 调用多次"
+            // 如果使用一个变量而非队列来储存回调,那么即使多次p1.then()也只会执行一次回调
+            while (this._resolveQueue.length) {
+              const callback = this._resolveQueue.shift();
+              callback(val);
+            }
+          };
+          // 实现同resolve
+          let _reject = (val) => {
+            if (this._status !== PENDING) return; // 对应规范中的"状态只能由pending到fulfilled或rejected"
+            this._status = REJECTED; // 变更状态
+            while (this._rejectQueue.length) {
+              const callback = this._rejectQueue.shift();
+              callback(val);
+            }
+          };
+
+          // new Promise()时立即执行executor,并传入resolve和reject
+          // 这里的setTimeout是为了处理同步executor的问题
+          executor(
+            (p) => {
+              setTimeout(() => {
+                _resolve(p);
+              });
+            },
+            (p) => {
+              setTimeout(() => {
+                _reject(p);
+              });
+            }
+          );
+        }
+      }
+
+      // then方法
+      // 核心是判断前一个then中返回值
+      MyPromise.prototype.then = function (resolveFn, rejectFn) {
+        //return一个新的promise
+        return new MyPromise((resolve, reject) => {
+          //把resolveFn重新包装一下,再push进resolve执行队列,这是为了能够获取回调的返回值进行分类讨论
+          const fulfilledFn = (value) => {
+            try {
+              //执行第一个(当前的)Promise的成功回调,并获取返回值
+              let x = resolveFn(value);
+              //分类讨论返回值,如果是Promise,那么等待Promise状态变更,否则直接resolve
+              //这里resolve之后，就能被下一个.then()的回调获取到返回值，从而实现链式调用
+              x instanceof MyPromise ? x.then(resolve, reject) : resolve(x);
+            } catch (error) {
+              reject(error);
+            }
+          };
+          //把后续then收集的依赖都push进当前Promise的成功回调队列中(_rejectQueue), 这是为了保证顺序调用
+          this._resolveQueue.push(fulfilledFn);
+
+          //reject同理
+          const rejectedFn = (error) => {
+            try {
+              let x = rejectFn(error);
+              x instanceof MyPromise ? x.then(resolve, reject) : resolve(x);
+            } catch (error) {
+              reject(error);
+            }
+          };
+          this._rejectQueue.push(rejectedFn);
+        });
+      };
+
+      MyPromise.prototype.catch = function (rejectFn) {
+        return this.then(undefined, rejectFn);
+      };
+
+      MyPromise.prototype.resolve = function (value) {
+        if (value instanceof MyPromise) return value; // 根据规范, 如果参数是Promise实例, 直接return这个实例
+        return new MyPromise((resolve) => resolve(value));
+      };
+
+      MyPromise.prototype.reject = function (reason) {
+        return new MyPromise((resolve, reject) => reject(reason));
+      };
+
+      //all方法这里不做具体实现，用计数器实现的
+
+      //race的实现非常亮，就是利用了已经resolve或者reject的promise后续即使继续resolve或者reject也不会进入对应的逻辑
+      MyPromise.prototype.race = function (promiseArr) {
+        return new MyPromise((resolve, reject) => {
+          //同时执行Promise,如果有一个Promise的状态发生改变,就变更新MyPromise的状态
+          for (let p of promiseArr) {
+            MyPromise.resolve(p).then(
+              //Promise.resolve(p)用于处理传入值不为Promise的情况
+              (value) => {
+                resolve(value); //注意这个resolve是上边new MyPromise的
+              },
+              (err) => {
+                reject(err);
+              }
+            );
+          }
+        });
+      };
+
+      //链式调用测试，测试前一个promise resolve函数返回不同类型
+      // const p1 = new MyPromise((resolve, reject) => {
+      //   resolve(1);
+      // });
+
+      // p1.then((res) => {
+      //   console.log(res);
+      //   //then回调中可以return一个Promise
+      //   return new MyPromise((resolve, reject) => {
+      //     setTimeout(() => {
+      //       resolve(2);
+      //     }, 1000);
+      //   });
+      // })
+      //   .then((res) => {
+      //     console.log(res);
+      //     //then回调中也可以return一个值
+      //     return 3;
+      //   })
+      //   .then((res) => {
+      //     console.log(res);
+      //   });
+
+      //catch测试
+      //MyPromise没有体现地catch的处理，catch应该具有冒泡作用，就算第二层没有添加reject方法，仍然可以冒泡到最后的catch，如果第二层添加了catch方法，则不会冒泡到最上层的catch，这个逻辑在MyPromise中没有体现，可以给MyPromise添加一些判断逻辑，判断如果前面的reject is not function，做一些逻辑
+      // var p = new MyPromise((resolve, reject) => {
+      //   reject(1)
+      // })
+      // p.catch((e) => {
+      //   console.log('this is error', e)
+      // })
+      // p.then((d) => {
+      //   console.log('resolve data', d)
+      // })
+      // .catch((e) => {
+      //   console.log('last catch', e)
+      // })
+
+      // var p1 = new Promise((resolve, reject) => {
+      //   reject(1)
+      // })
+      //   p1.then((d) => {
+      //     console.log('resolve data', d)
+      //   }, (e) => {
+      //     console.log('second level error catch', e)
+      //   })
+      //   .catch((e) => {
+      //     console.log('last catch', e)
+      //   })
+
+      // https://juejin.cn/post/6844904096525189128这篇文章也太亮了，其实Generator实现的核心在于上下文的保存，函数并没有真的被挂起，每一次yield，其实都执行了一遍传入的生成器函数，只是在这个过程中间用了一个context对象储存上下文，使得每次执行生成器函数的时候，都可以从上一个执行结果开始执行，看起来就像函数被挂起了一样
+      // 生成器函数根据yield语句将代码分割为switch-case块，后续通过切换_context.prev和_context.next来分别执行各个case
+      // 为了更好的说明es6的generator实现原理，用下面这段代码更清晰，其实就是根据yield把代码分成块，然后把分块的代码放入不同的switch里面，所以线程并未真正挂起，而是每次next方法调用都会去调用gen$函数，从而根据不同的content next决定进入不同的代码段
+      function* gen() {
+        yield (a = 5);
+        console.log("b");
+        console.log("c");
+        yield (c = 6);
+        console.log("d");
+      }
+      var _marked = /*#__PURE__*/ regeneratorRuntime.mark(gen);
+
+      function gen() {
+        return regeneratorRuntime.wrap(function gen$(_context) {
+          while (1) {
+            switch ((_context.prev = _context.next)) {
+              case 0:
+                _context.next = 2;
+                return (a = 5);
+
+              case 2:
+                console.log("b");
+                console.log("c");
+                _context.next = 6;
+                return (c = 6);
+
+              case 6:
+                console.log("d");
+
+              case 7:
+              case "end":
+                return _context.stop();
+            }
+          }
+        }, _marked);
+      }
+
+      //async await解决了Promise在控制流方面的缺陷，设想一个这样的场景，异步任务a->b->c之间存在依赖关系，如果我们通过then链式调用来处理这些关系，可读性并不是很好，如果我们想控制其中某个过程，比如在某些条件下，b不往下执行到c，那么也不是很方便控制
+      /*
+        async/await实际上是对Generator（生成器）的封装 
+          1. async/await自带执行器，不需要手动调用next()就能自动执行下一步，这也是一个async里面可以写好多个await的原因，就像一个Generator里面写了很多个yield，但是对于Generator，我们需要用next方法让所有的yield执行，手动调用next很难受，所有需要给async做封装，让其可以自动的执行next
+          2.async函数返回值是Promise对象，而Generator返回的是生成器对象
+          3.await能够返回Promise的resolve/reject的值
+      */
+      /*
+        由于async语法糖要在做开始的时候就被翻译，以便后续可以自动执行所有await，所以需要添加async关键字给函数，以便可以在build的时候就翻译好
+      */
+      /*
+        下面a可以有值的最核心的事情是Generator可以通过next方法把值写入yield，所以封装就变得更简单了，只要递归调用next，并且把resolve的值用next写入即可，所以这么牛逼的api最关键的还是Generator的实现原理，async只是做了一层封装而已 
+      */
+
+      function* gen() {
+        let a = yield Promise.resolve(1);
+        console.log("this is a", a);
+        console.log(2);
+        let b = yield Promise.resolve(3);
+        console.log("this is b", b);
+      }
+
+      // let g = gen();
+      // console.log(g.next()); //在这一行的时候，函数是挂起的，也就是console.log(2)并没有执行
+      // console.log(g.next()); //在这一行，console.log(2)执行了
+
+      function run(gen) {
+        var g = gen(); //由于每次gen()获取到的都是最新的迭代器,因此获取迭代器操作要放在_next()之前,否则会进入死循环
+
+        function _next(val) {
+          //封装一个方法, 递归执行g.next()
+          var res = g.next(val); //获取迭代器对象，并返回resolve的值
+          if (res.done) return res.value; //递归终止条件
+          res.value.then((val) => {
+            //Promise的then方法是实现自动迭代的前提
+            _next(val); //等待Promise完成就自动执行下一个next，并传入resolve的值
+          });
+        }
+        _next(); //第一次执行
+      }
+      run(gen);
+
+      /*
+        下面这个版本的语法糖函数更加完善 
+          1. 加入了错误处理 
+          2. 增加了async的返回仍是一个Promise逻辑
+          3. 增加了yield的后面仍是基本类型的兼容，兼容也比较亮，因为如果Promise.resolve会判断，如果当前传入值本就是promise，那么会直接return这个promise，如果是基本类型，那么会new 一个Promise，并且在excutor里面直接resolve
+      */
+      function run(gen) {
+        //把返回值包装成promise
+        return new Promise((resolve, reject) => {
+          var g = gen();
+
+          function _next(val) {
+            //错误处理
+            try {
+              var res = g.next(val);
+            } catch (err) {
+              return reject(err);
+            }
+            if (res.done) {
+              return resolve(res.value);
+            }
+            //res.value包装为promise，以兼容yield后面跟基本类型的情况
+            Promise.resolve(res.value).then(
+              (val) => {
+                _next(val);
+              },
+              (err) => {
+                //抛出错误
+                g.throw(err);
+              }
+            );
+          }
+          _next();
+        });
+      }
+
+      // let test1 = async () => {
+      //   return await new Promise((resolve, reject) => {
+      //     reject("error");
+      //   });
+      // };
+      // let p = await test1();
+      // console.log(p);
+    </script>
+  </body>
+</html>

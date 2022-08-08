@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+<body>
+  <script>
+    const IncreaseTheNumber = (N, K) => {
+      const numberString = String(N)
+      const digitArray = numberString.split('')
+      for (var i = 0; i < digitArray.length; i++) {
+        var numberDigit = +digitArray[i]
+        var diff = 9 - numberDigit
+        if (K - diff >= 0) {
+          digitArray[i] = 9
+          K -= diff
+        } else {
+          digitArray[i] = numberDigit + K
+          break
+        }
+      }
+      return +digitArray.join('')
+    }
+    console.log(IncreaseTheNumber(191, 4))
+  </script> 
+</body>
+</html>

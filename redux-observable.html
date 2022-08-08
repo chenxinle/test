@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/rxjs/6.6.3/rxjs.umd.js"></script>
+    <script>
+
+      /**
+       * redux observable 连接了redux与rxjs，方式是通过redux的middleware，具体衔接原理是redux observable增强了dispatch，
+       * dispatch原有中间件链条的同时，会使用rxjs的Subject进行所有Observable的pipe流转，并最终使用原生的dispatch去更新视图
+       * 
+      */
+    
+
+      let {Subject, merge} = rxjs
+      //目前感觉Observable这种类型的编程模式很适合于数据流转比较复杂的场景，特别是一个数据要经历很多中间状态最终到达最终状态，这种类型的数据如果使用副作用的编程模式，那么因为没有中间状态的保留，所有debug变得非常艰难，如果使用rxjs，每一个transformer都是纯净的，有什么输入就有什么输出，非常利于debug
+      //其次：这种编程模式对于数据的隔离很有帮助，一个流总是在自己的流里面流动
+
+      const createMiddleware = (...transformers) => {
+        let cachedStore
+        const action$ = new Subject();
+
+        //这个state$的Observable的最主要意义是可以观察state的变化，从而做一些事情，比如saveDraft这个transformer，Observable有fromEvent的方法，这个方法可以实现当某个事件发生时，这个Observable进入自己的流状态（但是这里的实现应该不是from Event，而是每次手动调state$.next），subject的next方法总是会把所有observer（按照官方定义，observer就是回调函数的集合，也就是我们监听的回调函数的集合）,都执行一遍。由于subject也是观察者，所以可以传入observable的subscribe函数参数里，observable的subscribe方法的参数本来就期望接受一个观察者，即一个回调函数，observable会去执行这个回调函数并传入observable中next传入的值
+        const state$ = new Subject();
+        // 运行各个 transformer，并将转换的流进行合并
+        const newAction$ = merge(
+          transformers.map((transformer) => transformer(action$, state$))
+        );
+        const middleware = (store) => {
+
+          cachedStore = store
+
+          // 订阅 newAction$
+          // newAction$.subscribe((action) => store.dispatch(action)); //这行代码属于初始化的代码，移动到了run函数中
+
+          return (next) => (action) => {
+            // 将 action 交给 reducer 处理，这里的意义是不要阻止其他中间件对action的处理
+            const result = next(action);
+            // 获得 reducer 处理后的新状态
+            state$.next(state);
+            // 将 action 放到 action$ 中进行流转，由于action$是最初的Subject，所以next方法可以进入所有observable的流转
+            // 由于在middleware的run方法中subscribe了merge之后的Subject，所以最终会用原生的dispatch去dispath经过所有observable转换后的结果
+            action$.next(action);
+            return result;
+          };
+        };
+
+        //现在明白了所有redux中间件使用run方法的意思，就是为了init一些初始状态
+        middleware.run = function () {
+          // 1. 开始对 action 的订阅
+          newAction$.subscribe(cachedStore.dispatch);
+          // 2. 将初始状态传递给 state$
+          state$.next(cachedStore.getState());
+        };
+
+        return middleware;
+      };
+
+      const reducer = (state = 0, action) => {
+        switch (action.type) {
+          case "PONG":
+            return state + 1;
+          default:
+            return state;
+        }
+      };
+
+      // const saveDraft$ = state$.pipe(
+      //   // 选出当前
+      //   pluck("content"),
+      //   // 只有当内容变动时才考虑存储草稿
+      //   distinctUntilChanged(),
+      //   // 只在 1 s 内保存一次
+      //   throttleTime(1000),
+      //   // 调用服务存储草稿
+      //   switchMap((content) => from(api.saveDraft(content)))
+      //   // ....
+      // );
+
+      const transformer = (action$) => {
+        return action$.pipe(ofType("PING"), mapTo({ type: "PONG" }));
+      };
+
+      // create的时候先将所有的transformer都merge起来，形成一个新的action$，这个action$是一个subject，这个subject调用next的时候会先经过所有的transformers(实现目前我觉得是给action$上订阅要transform做的事情), 最后会调用原生的dispatch，经过了transformers，开始的action会被transform成我们想要的action，最终被dispatch，dispatch后到达reducer.
+
+      //经过所有transformers的实现是基于rxjs的pipe方式
+      const middleware = createMiddleware(transformer);
+      const store = createStore(reducer, applyMiddleware(middleware));
+
+      //这里的dispatch已经是增强后的dispatch了，增强原理就是redux中间件传统的增强原理，由于是增强后的dispatch，所以这个dispatch会先被Epic中间件拦截，进入前面添加的transformers，这里的transformer是先判断类型是不是PING，然后把PING的action map到PONG上面，由于PONG对应的reducer是把state加1，所以最终的结果state会是1.
+      store.dispatch({ type: "PING", payload: {
+        test: 'test'
+      } });
+      // expect(store.getState()).to.be.equal(1);
+    </script>
+  </body>
+</html>

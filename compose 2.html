@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <script>
+      //目前对洋葱模型的理解是由于必须要到葱心，也就是原生dispatch的地方，那么就会是从外到葱心，然后从葱心出去的过程
+
+      //对于redux middleware的原理梳理，applyMiddleware方法首先会注入state与dispatch，调用中间件最外层的方法。接着对所有的中间件进行compose，compose实现是reduce方法，这个时候所有中间件的init逻辑都会执行（即下面例子的"next1" logic），compose结束后会得到一个(args) => {a(b(c(...args)))}函数，这个时候需要注入原生dispatch，即要执行compose的得到的函数，这个时候会得到a(b(c((dispatch))))执行后的函数enhanceDispatch，即middleware1的return函数，next即后续middleware的return函数，这个时候执行enhanceDispatch，整个middleware链路正式开始
+
+      //redux middleware对函数与函数参数有深刻的理解
+      let middleware1 = (next) => {
+        console.log("next1");
+        return (action) => {
+          console.log("middle ware 1");
+          // throw new Error('this is middleware1 error')
+          return next(action);
+        };
+      };
+      let middleware2 = (next) => {
+        console.log("next2");
+        return (action) => {
+          console.log("middle ware 2");
+          throw new Error('this is middleware2 error')
+          return next(action);
+        };
+      };
+      let middleware3 = (next) => {
+        console.log("next3");
+        return (action) => {
+          console.log("middle ware 3");
+          return next(action);
+        };
+      };
+      const dispatch = function () {
+        console.log("this is origin dispatch");
+      };
+
+
+      //这个errorCatchMiddleware太亮了，是对js函数调用最深刻的理解，因为next方法后一直调用后续的next，所以最开始的next，也就是errorCatchMiddleware中的next方法的调用栈一直没有释放，所以后续的调用过程中有任何错误都会导致errorCatchMiddleware中的next方法出错，从而进入catch的逻辑
+      let errorCatchMiddleware = (next) => {
+        console.log('error catch init')
+        return (action) => {
+          try {
+            next()
+          } catch(e) {
+            console.log('error catched ' + e)
+            return e
+          }
+        }
+      }
+      const chain = [errorCatchMiddleware, middleware1, middleware2, middleware3];
+      const compose = function (...funcs) {
+        if (funcs.length === 0) {
+          return (arg) => arg;
+        }
+
+        if (funcs.length === 1) {
+          return funcs[0];
+        }
+
+        // return funcs.reduce((a, b) => {
+        //   return (...args) => {
+        //     return a(b(...args));
+        //   };
+        // });
+        return funcs.reduce((a, b) => (...args) => a(b(...args)));
+      };
+
+      //这里是洋葱模型最明显的体现，当enhance dispatch的时候，执行顺序是next3, next2, next1
+      let composed = compose(...chain);
+      let enhancedDispatch = composed(dispatch);
+      // console.log(enhancedDispatch);
+
+      //当enhance结束后，进行使用中间件的时候，执行顺序是middle ware1 middle ware2 middle ware3
+      enhancedDispatch("test");
+
+      //这里是compose实际做的事情，意义是next为后面中间件的内部方法（内部方法的意思是每个中间件next后面的方法，这个方法是中间件做事情的地方）
+      //   let newDispatch = middleware1(middleware2(middleware3(dispatch)));
+      //   newDispatch("test");
+
+      //测试函数执行作为参数
+      function a() {
+        console.log("a");
+      }
+      function b() {
+        console.log("b");
+      }
+      // a(b()); //result: b a
+    </script>
+  </body>
+</html>

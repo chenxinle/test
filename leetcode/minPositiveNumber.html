@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+<body>
+  <script>
+    function minPositiveNumber(A) {
+      var arr = A.filter(a => a > 0).sort((a, b) => a - b)
+
+      if (!arr.length) {
+        return 1
+      }
+
+      let min
+      for (let i = 0; i < arr.length - 1; i++) {
+        if (arr[i + 1] - arr[i] > 1) {
+          min = arr[i] + 1
+          break
+        }
+      }
+      return min === undefined ? arr[arr.length - 1] + 1 : min
+    }
+    console.log(minPositiveNumber([-1, -3]))
+  </script> 
+</body>
+</html>

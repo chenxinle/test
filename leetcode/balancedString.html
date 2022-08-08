@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Document</title>
+</head>
+<body>
+  <script>
+    const balancedString = (S) => {
+      var stringArr = S.split('') 
+      let minLength = Infinity
+      for (var i = 0; i < stringArr.length - 1; i++) {
+        for (var j = i + 2; j < stringArr.length + 1; j++) {
+          if (isBalance(stringArr.slice(i, j))) {
+            minLength = Math.min(j - i, minLength)
+            break
+          }
+        }
+      }
+      return minLength === Infinity ? -1 : minLength
+    }
+
+    const isBalance = (stringArr) => {
+      let result = []
+      stringArr.forEach(item => {
+        if (result.indexOf(item) === -1) {
+          result.push(item)
+        }
+      })
+
+      let map = {}
+      result.forEach(item => {
+        let key;
+        if (isUpperCase(item)) {
+          key = item.toLowerCase()
+        } else {
+          key = item.toUpperCase()
+        }
+        if (!map[key]) {
+          map[item] = true
+        } else {
+          delete map[key]
+        }
+      })
+
+      return !Object.keys(map).length
+
+    }
+
+    const isUpperCase = (S) => {
+      return S === S.toUpperCase()
+    }
+
+    // console.log(balancedString('AcZCbaBz'))
+    // console.log(balancedString('TacoCat'))
+    // console.log(balancedString('azABaabza'))
+    // console.log(balancedString('abcdefghijklmnopqrstuvwxyz'))
+    console.log(balancedString("aA"))
+    
+  </script> 
+</body>
+</html>

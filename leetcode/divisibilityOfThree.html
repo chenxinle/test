@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+<body>
+  <script>
+    const divisibleOfThree = (S) => {
+      const numberDigit = S.split('').map(item => +item)
+      const digitSum = numberDigit.reduce((preSum, cur) => preSum + cur) 
+      const result = []
+
+      for (var i = 0; i < numberDigit.length; i++) {
+        const remainSum = digitSum - numberDigit[i]
+        for(var j = 0; j < 10; j++) {
+          if ((j + remainSum) % 3 === 0) {
+            let copy = [].concat(numberDigit)
+            copy[i] = j
+            const number = copy.join('')
+            if (result.indexOf(number) === -1) {
+              result.push(number)
+            }
+          }
+        }
+      }
+      return result.length
+    }
+
+    console.log(divisibleOfThree("022"))
+  </script> 
+</body>
+</html>

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+<body>
+  <script>
+    const bugfixConsecutiveInteger = (A, K) => {
+      var n = A.length;
+      for (var i = 0; i < n - 1; i++) {
+          if (A[i] + 1 < A[i + 1])
+              return false;
+      }
+      if (A[0] != 1 || A[n - 1] != K)
+          return false;
+      else
+          return true;
+    }
+    console.log(bugfixConsecutiveInteger([-1,0], 0))
+  </script> 
+</body>
+</html>
